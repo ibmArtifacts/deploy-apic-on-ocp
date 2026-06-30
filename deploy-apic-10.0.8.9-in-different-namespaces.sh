@@ -398,21 +398,65 @@ EOF
 
 
 
+
+echo "Extract ingress-ca and management-ca from ${NAMESPACE_MGMT} ns and add them to ns ${NAMESPACE_GW}, ${NAMESPACE_PTL}, and ${NAMESPACE_A7S}"
+SECRETS=("ingress-ca" "management-ca")
+TARGET_NAMESPACES=("${NAMESPACE_GW}" "${NAMESPACE_PTL}" "${NAMESPACE_A7S}")
+
+strip_and_apply() {
+  local secret=$1
+  local dst_ns=$2
+
+  echo "  Applying '${secret}' to namespace '${dst_ns}'..."
+
+  oc get secret "${secret}" -n "${NAMESPACE_MGMT}" -o json \
+    | jq 'del(
+        .metadata.creationTimestamp,
+        .metadata.namespace,
+        .metadata.resourceVersion,
+        .metadata.uid,
+        .metadata.selfLink
+      )' \
+    | jq ".metadata.namespace = \"${dst_ns}\"" \
+    | oc apply -n "${dst_ns}" -f -
+}
+
+for SECRET in "${SECRETS[@]}"; do
+  echo ""
+  echo "Exporting '${SECRET}' from '${NAMESPACE_MGMT}'..."
+
+  # Verify the secret exists in the source namespace before attempting export
+  if ! oc get secret "${SECRET}" -n "${NAMESPACE_MGMT}" &>/dev/null; then
+    echo "  ERROR: Secret '${SECRET}' not found in namespace '${NAMESPACE_MGMT}'. Skipping."
+    continue
+  fi
+
+  for NS in "${TARGET_NAMESPACES[@]}"; do
+    strip_and_apply "${SECRET}" "${NS}"
+  done
+done
+
+echo ""
+echo "Done. Summary:"
+for NS in "${TARGET_NAMESPACES[@]}"; do
+  echo ""
+  echo "  Namespace: ${NS}"
+  for SECRET in "${SECRETS[@]}"; do
+    STATUS=$(oc get secret "${SECRET}" -n "${NS}" --no-headers 2>/dev/null \
+      && echo "OK" || echo "MISSING")
+    echo "    ${SECRET}: ${STATUS}"
+  done
+done
+
+
+
+
+
+
+
 oc project ${NAMESPACE_GW}
 echo "Creating gateway admin secret..."
 oc create secret generic admin-secret --from-literal=password=admin
-
-echo "Export ingress-ca from mgmt to set to gw ns"
-oc get secret ingress-ca -n apic-mgmt -o json \
-  | jq 'del(
-      .metadata.creationTimestamp,
-      .metadata.namespace,
-      .metadata.resourceVersion,
-      .metadata.uid,
-      .metadata.selfLink
-    )' \
-  | jq ".metadata.namespace = \"${NAMESPACE_GW}\"" \
-  | oc apply -n ${NAMESPACE_GW} -f -
 
 echo "Applying the GW common-issuer-and-gateway-certs"
 cat <<EOF | oc apply -f -
@@ -567,18 +611,6 @@ spec:
   ca:
     secretName: ingress-ca
 EOF
-
-echo "Export ingress-ca from mgmt to set to ptl ns"
-oc get secret ingress-ca -n apic-mgmt -o json \
-  | jq 'del(
-      .metadata.creationTimestamp,
-      .metadata.namespace,
-      .metadata.resourceVersion,
-      .metadata.uid,
-      .metadata.selfLink
-    )' \
-  | jq ".metadata.namespace = \"${NAMESPACE_PTL}\"" \
-  | oc apply -n ${NAMESPACE_PTL} -f -
 
 echo "Installing the ptl subsystem in a shared namespace."
 cat <<EOF | oc apply -f -
