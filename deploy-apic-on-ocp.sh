@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# NOTE: This script is not fully completed, but you may use these as an example of automating the APIC install on a single ocp namespace.
+
 export NAMESPACE=ENTER_YOUR_APIC_NAMESPACE_HERE
 export CASE_NAME=ibm-apiconnect
 export CASE_VERSION=5.7.0
