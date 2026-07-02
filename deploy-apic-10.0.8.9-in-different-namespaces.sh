@@ -81,9 +81,6 @@ kind: OperatorGroup
 metadata:
   name: apic-operator-group
   namespace: ${NAMESPACE_OPERATOR}
-spec:
-  targetNamespaces:
-  - ${NAMESPACE_OPERATOR}
 EOF
 
 
@@ -93,7 +90,7 @@ apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: ${CASE_NAME_APIC}
-  namespace: openshift-operators
+  namespace: ${NAMESPACE_OPERATOR}
 spec:
   channel: ${APIC_CHANNEL}
   name: ${CASE_NAME_APIC}
@@ -584,6 +581,11 @@ spec:
   #   remotePort: $DATAPOWER_SYSLOG_TCP_REMOTE_PORT # must be an int
   #   secretName: $DATAPOWER_SYSLOG_TCP_TLS_SECRET # must be a string
 EOF
+
+
+
+
+
 
 oc project ${NAMESPACE_PTL}
 echo "Applying the PTL common-issuers"
