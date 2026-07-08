@@ -1,7 +1,7 @@
 #!/bin/bash
 #Deployment of apic v10.0.8.9 in different namespaces
 
-export NAMESPACE_OPERATOR=apic-ops
+export NAMESPACE_OPERATOR=apic-operators
 export NAMESPACE_MGMT=apic-mgmt
 export NAMESPACE_PTL=apic-ptl
 export NAMESPACE_A7S=apic-a7s
@@ -41,6 +41,9 @@ oc create secret docker-registry ibm-entitlement-key \
         --docker-server=cp.icr.io \
         --docker-username=cp \
         --docker-password=${ENTITLEMENT_KEY}
+
+#echo "Create common services namespace"
+#oc create ns ibm-common-services
 
 echo "This section downloads and applies the APIC catalog sources to the cluster."
 echo "1. Downloading the files for the operators required by APIC"
@@ -94,27 +97,14 @@ spec:
   sourceNamespace: openshift-marketplace
 EOF
 
-echo "Installing RH Cert-Manager:"
-oc create ns cert-manager
-echo "Creating RH Cert-Manager OperatorGroup..."
-cat <<EOF | oc apply -f -
-apiVersion: operators.coreos.com/v1
-kind: OperatorGroup
-metadata:
-  name: cert-manager-operator-group
-  namespace: cert-manager
-spec:
-  targetNamespaces:
-  - cert-manager
-EOF
 
-echo "Create Subscription for cert-manager operator:"
+echo "Create Subscription for cert-manager: "
 cat <<EOF | oc apply -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: openshift-cert-manager-operator
-  namespace: cert-manager
+  namespace: ${NAMESPACE_OPERATOR}
 spec:
   channel: stable-v1
   installPlanApproval: Automatic
@@ -123,60 +113,21 @@ spec:
   sourceNamespace: openshift-marketplace
 EOF
 
-echo "Waiting for cert-manager operator to be installed..."
-sleep 10
+echo "Verify subscription"
+oc get subscription openshift-cert-manager-operator -n ${NAMESPACE_OPERATOR}
 
-# Check operator installation status
-echo "Checking operator installation status..."
-for i in {1..30}; do
-    if oc get csv -n cert-manager | grep -q "Succeeded"; then
-        echo "Operator installed successfully!"
-        break
-    fi
-    echo "Waiting for operator... (attempt $i/30)"
-    sleep 10
-done
+echo "Waiting for cert-manager operator installation..."
+oc wait --for=condition=Ready \
+  subscription/openshift-cert-manager-operator \
+  -n ${NAMESPACE_OPERATOR} \
+  --timeout=5m
 
-echo "Operator Status:"
-oc get csv -n cert-manager
+echo "Verify cert-manager pods are running: "
+oc get pods -n ${NAMESPACE_OPERATOR}
 
-echo "Creating cert-manager instance..."
-cat <<EOF | oc apply -f -
-apiVersion: operator.openshift.io/v1alpha1
-kind: CertManager
-metadata:
-  name: cluster
-spec:
-  managementState: Managed
-  logLevel: Normal
-  operatorLogLevel: Normal
-EOF
+echo "List cert-manager CRDs: "
+oc get crd | grep cert-manager
 
-# Wait for cert-manager pods to be ready
-echo ""
-echo "Waiting for cert-manager pods to be ready..."
-sleep 15
-
-echo "Checking cert-manager deployment status..."
-oc wait --for=condition=Available --timeout=300s \
-  deployment/cert-manager -n cert-manager || true
-oc wait --for=condition=Available --timeout=300s \
-  deployment/cert-manager-webhook -n cert-manager || true
-oc wait --for=condition=Available --timeout=300s \
-  deployment/cert-manager-cainjector -n cert-manager || true
-
-
-echo "RH Cert-Manager completed"
-echo ""
-echo "Cert-manager pods:"
-oc get pods -n cert-manager
-echo ""
-echo "Cert-manager deployments:"
-oc get deployments -n cert-manager
-echo ""
-echo "To verify installation, run:"
-echo "oc get all -n cert-manager"
-echo "oc get certmanager cluster -o yaml"
 
 
 echo "Create ibm-common-services-opearators subscription."
@@ -320,6 +271,7 @@ spec:
   privateKey:
     rotationPolicy: Always
 EOF
+
 
 echo "Installing the mgmt subsystem in separate namespaces."
 oc project ${NAMESPACE_MGMT}
