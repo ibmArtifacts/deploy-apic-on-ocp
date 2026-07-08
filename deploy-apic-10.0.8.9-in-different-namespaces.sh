@@ -42,8 +42,8 @@ oc create secret docker-registry ibm-entitlement-key \
         --docker-username=cp \
         --docker-password=${ENTITLEMENT_KEY}
 
-#echo "Create common services namespace"
-#oc create ns ibm-common-services
+echo "Create common services namespace"
+oc create ns ibm-common-services
 
 echo "This section downloads and applies the APIC catalog sources to the cluster."
 echo "1. Downloading the files for the operators required by APIC"
