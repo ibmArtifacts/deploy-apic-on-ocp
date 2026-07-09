@@ -8,7 +8,7 @@ export NAMESPACE_A7S=apic-a7s
 export NAMESPACE_GW=apic-gw
 export NAMESPACE_DEFAULT=default
 export STACK_HOST=YOUR_HOST_DOMAIN_HERE
-export STORAGE_CLASS=YOUR_STORAGECLASS_HERE
+export STORAGE_CLASS=YOUR_STORAGE_CLASS_HERE
 export CASE_NAME_APIC=ibm-apiconnect
 export CASE_VERSION_APIC=5.11.0
 export APIC_CHANNEL=v5.11-sc2
@@ -98,13 +98,34 @@ spec:
 EOF
 
 
-echo "Create Subscription for cert-manager: "
+
+
+
+
+
+
+
+
+
+
+echo "Installing RH Cert-Manager:"
+oc create ns cert-manager-operator
+echo "Creating RH Cert-Manager OperatorGroup..."
+cat <<EOF | oc apply -f -
+apiVersion: operators.coreos.com/v1
+kind: OperatorGroup
+metadata:
+  name: cert-manager-operator-group
+  namespace: cert-manager-operator
+EOF
+
+echo "Create Subscription for cert-manager operator:"
 cat <<EOF | oc apply -f -
 apiVersion: operators.coreos.com/v1alpha1
 kind: Subscription
 metadata:
   name: openshift-cert-manager-operator
-  namespace: ${NAMESPACE_OPERATOR}
+  namespace: cert-manager-operator
 spec:
   channel: stable-v1
   installPlanApproval: Automatic
@@ -113,20 +134,63 @@ spec:
   sourceNamespace: openshift-marketplace
 EOF
 
-echo "Verify subscription"
-oc get subscription openshift-cert-manager-operator -n ${NAMESPACE_OPERATOR}
+echo "Waiting for cert-manager operator to be installed..."
+sleep 10
 
-echo "Waiting for cert-manager operator installation..."
-oc wait --for=condition=Ready \
-  subscription/openshift-cert-manager-operator \
-  -n ${NAMESPACE_OPERATOR} \
-  --timeout=5m
+# Check operator installation status
+echo "Checking operator installation status..."
+for i in {1..30}; do
+    if oc get csv -n cert-manager-operator | grep -q "Succeeded"; then
+        echo "Operator installed successfully!"
+        break
+    fi
+    echo "Waiting for operator... (attempt $i/30)"
+    sleep 10
+done
 
-echo "Verify cert-manager pods are running: "
-oc get pods -n ${NAMESPACE_OPERATOR}
+echo "Operator Status:"
+oc get csv -n cert-manager-operator
 
-echo "List cert-manager CRDs: "
-oc get crd | grep cert-manager
+echo "Creating cert-manager instance..."
+cat <<EOF | oc apply -f -
+apiVersion: operator.openshift.io/v1alpha1
+kind: CertManager
+metadata:
+  name: cluster
+spec:
+  managementState: Managed
+  logLevel: Normal
+  operatorLogLevel: Normal
+EOF
+
+# Wait for cert-manager pods to be ready
+echo ""
+echo "Waiting for cert-manager-operator pods to be ready..."
+sleep 15
+
+echo "Checking cert-manager deployment status..."
+oc wait --for=condition=Available --timeout=300s \
+  deployment/cert-manager -n cert-manager || true
+oc wait --for=condition=Available --timeout=300s \
+  deployment/cert-manager-webhook -n cert-manager || true
+oc wait --for=condition=Available --timeout=300s \
+  deployment/cert-manager-cainjector -n cert-manager || true
+
+
+echo "RH Cert-Manager completed"
+echo ""
+echo "Cert-manager pods:"
+oc get pods -n cert-manager-operator
+echo ""
+echo "Cert-manager deployments:"
+oc get deployments -n cert-manager
+echo ""
+echo "To verify installation, run:"
+echo "oc get all -n cert-manager"
+echo "oc get certmanager cluster -o yaml"
+
+
+
 
 
 
